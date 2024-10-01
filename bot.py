@@ -31,6 +31,7 @@ commands = {
         'досплати': 'topay',
         'дозняття': 'towithdraw',
         'довиведення': 'towithdraw',
+        'оплачено': 'add',
         '+': 'add'
     }
 
@@ -116,16 +117,49 @@ async def handle_message(update: telegram.Update, context: CallbackContext):
             estate['current_contract'] = new_amount
             await context.bot.send_message(chat_id=CHAT_ID, text=f"Контракт змінено на {new_amount}{currency}")
         elif command == 'add':
-            amount = int(text[1:].strip())
+            # Muster für "01.10. +4500"
+            # Muster für "01.10.2024 оплачено 4500"
+            pattern_plus = r'(\d{1,2}\.\d{1,2}(?:\.\d{2,4})?)\s*\+\s*(\d+)'
+            payment_date = datetime.now().strftime('%Y-%m-%d')
+            is_now = True
+            is_found = False
+            # Datum und Betrag aus dem ersten Format extrahieren
+            match_plus = re.match(pattern_plus, text)
+            if match_plus:
+                date_str = match_plus.group(1)
+                amount = int(match_plus.group(2))
+
+                # Optional: Datum validieren und in standardisiertes Format umwandeln
+                try:
+                    payment_date = datetime.strptime(date_str, '%d.%m.%Y').strftime('%Y-%m-%d')
+                except ValueError:
+                    payment_date = datetime.strptime(date_str, '%d.%m').strftime(f'%Y-{date_str[3:5]}-%d')
+                is_now = payment_date == datetime.now().strftime('%Y-%m-%d')
+            else:
+                amount = int(text[1:].strip())
             if estate['current_contract'] == 0:
                 estate['current_contract'] = amount
-            estate['payments'].append({
-                'paid': True,
-                'amount': amount,
-                'date': datetime.now().strftime('%Y-%m-%d'),
-                'withdrawn': False
-            })
-            await context.bot.send_message(chat_id=CHAT_ID, text=f"{amount}{currency} були позначені як оплачені.")
+            if is_now:
+                is_found = True
+                estate['payments'].append({
+                    'paid': True,
+                    'amount': amount,
+                    'date': payment_date,
+                    'withdrawn': False
+                })
+            else:
+
+                for p in estate['payments']:
+                    if p['date'] == payment_date:
+                        p['amount'] = amount
+                        p['paid'] = True
+                        is_found = True
+                        break
+
+            if is_found:
+                await context.bot.send_message(chat_id=CHAT_ID, text=f"{amount}{currency} були позначені як оплачені (за {payment_date}).")
+            else:
+                await context.bot.send_message(chat_id=CHAT_ID, text=f"запис з {payment_date} не знайдений у базі")
         elif command == 'withdraw':
             total_withdraw = sum(p['amount'] for p in estate['payments'] if not p['withdrawn'])
             for payment in estate['payments']:
