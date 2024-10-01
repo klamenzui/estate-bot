@@ -5,6 +5,7 @@ from datetime import datetime, time
 import json
 import os
 import re
+import difflib  # Für die Textannäherung
 
 # pip install python-telegram-bot
 # pip install "python-telegram-bot[job-queue]"
@@ -22,8 +23,27 @@ estate_tpl = {
     'payments': [],
     'withdrawn_payments': []
 }
+commands = {
+        'контракт': 'contract',
+        'договір': 'contract:',
+        'зняти': 'withdraw',
+        'вивести': 'withdraw',
+        'досплати': 'topay',
+        'дозняття': 'towithdraw',
+        'довиведення': 'towithdraw',
+        '+': 'add'
+    }
+
 currency = 'грн.'
 
+
+def normalize_text(text):
+    return re.sub(r"[^\w\s]", '', text.lower().strip(), flags=re.UNICODE)
+
+def get_best_match(input_text, possible_matches):
+    normalized_input = normalize_text(input_text)
+    matches = difflib.get_close_matches(normalized_input, possible_matches, n=1, cutoff=0.7)
+    return matches[0] if matches else None
 
 # Lade oder initialisiere die Vertragsdaten
 def load_data():
@@ -74,51 +94,55 @@ async def send_monthly_message(context: CallbackContext):
 
 async def handle_message(update: telegram.Update, context: CallbackContext):
     estates = load_data()
-    print(update)
-    # TMP = context
     msg = update.message
     CHAT_ID = msg.chat.id
     text = msg.text.strip().lower()
-    text_r = re.sub(r"[^\w\s]", '', text.lower())
-    estate = estates[str(CHAT_ID)] if str(CHAT_ID) in estates else estate_tpl.copy()
+    text_r = normalize_text(text)
+    print(text_r)
+    estate = estates.get(str(CHAT_ID), estate_tpl.copy())
     estate['title'] = msg.chat.title
     estate['chat_id'] = CHAT_ID
-    if text.startswith("контракт:") or text.startswith("договір:"):
-        new_amount = int(text.split(":")[1].strip())
-        if estate['current_contract'] > 0:
-            estate['prev_contracts'].append({
-                'amount': estate['current_contract'],
-                'end_date': datetime.now().strftime('%Y-%m-%d')
+    best_match = get_best_match(text_r, commands.keys())
+
+    if best_match:
+        command = commands[best_match]
+        if command == 'contract':
+            new_amount = int(text.split(":")[1].strip())
+            if estate['current_contract'] > 0:
+                estate['prev_contracts'].append({
+                    'amount': estate['current_contract'],
+                    'end_date': datetime.now().strftime('%Y-%m-%d')
+                })
+            estate['current_contract'] = new_amount
+            await context.bot.send_message(chat_id=CHAT_ID, text=f"Контракт змінено на {new_amount}{currency}")
+        elif command == 'add':
+            amount = int(text[1:].strip())
+            if estate['current_contract'] == 0:
+                estate['current_contract'] = amount
+            estate['payments'].append({
+                'paid': True,
+                'amount': amount,
+                'date': datetime.now().strftime('%Y-%m-%d'),
+                'withdrawn': False
             })
-        estate['current_contract'] = new_amount
-        await context.bot.send_message(chat_id=CHAT_ID, text=f"Контракт змінено на {new_amount}{currency}")
-    elif text.startswith("+"):
-        amount = int(text[1:].strip())
-        if estate['current_contract'] == 0:
-            estate['current_contract'] = amount
-        estate['payments'].append({
-            'paid': True,
-            'amount': amount,
-            'date': datetime.now().strftime('%Y-%m-%d'),
-            'withdrawn': False
-        })
-        await context.bot.send_message(chat_id=CHAT_ID, text=f"{amount}{currency} були позначені як оплачені.")
-    elif text_r == "зняти" or text_r == "вивести":
-        total_withdraw = sum(p['amount'] for p in estate['payments'] if not p['withdrawn'])
-        for payment in estate['payments']:
-            payment['withdrawn'] = True
-        estate['withdrawn_payments'].append({
-            'total_withdraw': total_withdraw,
-            'date': datetime.now().strftime('%Y-%m-%d')
-        })
-        await context.bot.send_message(chat_id=CHAT_ID,
-                                       text=f"Загальна сума виведених коштів: {total_withdraw}{currency}")
-    elif text_r == "досплати":
-        unpaid_total = sum(p['amount'] for p in estate['payments'] if not p['paid'])
-        await context.bot.send_message(chat_id=CHAT_ID, text=f"Сума до сплати: {unpaid_total}{currency}")
-    elif text_r == "дозняття" or text_r == "довиведення":
-        unpaid_total = sum(p['amount'] for p in estate['payments'] if not p['withdrawn'])
-        await context.bot.send_message(chat_id=CHAT_ID, text=f"Сума до зняття: {unpaid_total}{currency}")
+            await context.bot.send_message(chat_id=CHAT_ID, text=f"{amount}{currency} були позначені як оплачені.")
+        elif command == 'withdraw':
+            total_withdraw = sum(p['amount'] for p in estate['payments'] if not p['withdrawn'])
+            for payment in estate['payments']:
+                payment['withdrawn'] = True
+            estate['withdrawn_payments'].append({
+                'total_withdraw': total_withdraw,
+                'date': datetime.now().strftime('%Y-%m-%d')
+            })
+            await context.bot.send_message(chat_id=CHAT_ID,
+                                           text=f"Загальна сума виведених коштів: {total_withdraw}{currency}")
+        elif command == 'topay':
+            unpaid_total = sum(p['amount'] for p in estate['payments'] if not p['paid'])
+            await context.bot.send_message(chat_id=CHAT_ID, text=f"Сума до сплати: {unpaid_total}{currency}")
+        elif command == 'towithdraw':
+            unpaid_total = sum(p['amount'] for p in estate['payments'] if not p['withdrawn'])
+            await context.bot.send_message(chat_id=CHAT_ID, text=f"Сума до зняття: {unpaid_total}{currency}")
+
     estates[str(CHAT_ID)] = estate
     save_data(estates)
     # await send_monthly_message(TMP)
