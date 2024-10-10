@@ -9,7 +9,7 @@ WORKDIR /app
 RUN apk add --no-cache git
 
 # Clone the GitHub repository
-RUN git clone https://github.com/username/your-repo.git /app
+RUN git clone https://github.com/klamenzui/estate-bot.git /app
 
 # Install dependencies
 RUN pip install --no-cache-dir -r requirements.txt
