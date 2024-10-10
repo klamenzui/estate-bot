@@ -57,14 +57,14 @@ def get_best_match(input_text, possible_matches):
 # Lade oder initialisiere die Vertragsdaten
 def load_data():
     estates = {}
-    if os.path.exists('estates.json'):
-        with open('estates.json', 'r') as file:
+    if os.path.exists('src/estates.json'):
+        with open('src/estates.json', 'r') as file:
             estates = json.load(file)
     return estates
 
 
 def save_data(estates):
-    with open('estates.json', 'w') as file:
+    with open('src/estates.json', 'w') as file:
         json.dump(estates, file)
 
 
