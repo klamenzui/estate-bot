@@ -18,6 +18,7 @@ bot_memory = {}
 estate_tpl = {
     'title': '',
     'chat_id': '',
+    'message_thread_id': '',
     'prev_contracts': [],
     'current_contract': 0,
     'payments': [],
@@ -157,7 +158,7 @@ async def send_monthly_message(context: CallbackContext):
         else:
             message = f"Контракт відсутній!"
 
-        await context.bot.send_message(chat_id=estate['chat_id'], text=message)
+        await context.bot.send_message(chat_id=estate['chat_id'], message_thread_id=estate['thread_id'], text=message)
 
 
 async def handle_message(update: telegram.Update, context: CallbackContext):
@@ -173,6 +174,8 @@ async def handle_message(update: telegram.Update, context: CallbackContext):
     estate = estates.get(str(estate_id), estate_tpl.copy())
     estate['title'] = title
     estate['id'] = estate_id
+    estate['thread_id'] = msg.message_thread_id
+    print(estate)
 
     date, amount, msg_currency, text = extract_date_amount(message)
     text = text.replace("+", "plus").replace("-", "minus")
@@ -183,6 +186,7 @@ async def handle_message(update: telegram.Update, context: CallbackContext):
     res, best_match = get_best_match(text, keys_list)
     if res:
         command = commands[res]
+        print(command, estate_id, date, amount, msg_currency, text)
         if command == 'contract':
             if estate['current_contract'] > 0:
                 estate['prev_contracts'].append({
@@ -197,7 +201,11 @@ async def handle_message(update: telegram.Update, context: CallbackContext):
             is_now = payment_date == cur_month
             is_found = False
             if amount is None:
-                return
+                if estate['current_contract'] == 0:
+                    await context.bot.send_message(chat_id=CHAT_ID, reply_to_message_id=message_id,
+                                                   text=f"current_contract = 0")
+                    return
+                amount = estate['current_contract']
             if estate['current_contract'] == 0:
                 estate['current_contract'] = amount
             for p in estate['payments']:
@@ -207,6 +215,7 @@ async def handle_message(update: telegram.Update, context: CallbackContext):
                     is_found = True
                     print('update', payment_date, amount)
                     break
+            print(is_now, is_found, payment_date, cur_month, payment_date == cur_month)
             if is_now and not is_found:
                 print('add', payment_date, amount)
                 is_found = True
@@ -269,7 +278,7 @@ async def handle_message(update: telegram.Update, context: CallbackContext):
 
 
 
-    estates[str(CHAT_ID)] = estate
+    estates[str(estate_id)] = estate
     save_data(estates)
     # await send_monthly_message(TMP)
 
