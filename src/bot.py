@@ -174,6 +174,7 @@ async def handle_message(update: telegram.Update, context: CallbackContext):
     estate = estates.get(str(estate_id), estate_tpl.copy())
     estate['title'] = title
     estate['id'] = estate_id
+    estate['chat_id'] = CHAT_ID
     estate['thread_id'] = msg.message_thread_id
     print(estate)
 
